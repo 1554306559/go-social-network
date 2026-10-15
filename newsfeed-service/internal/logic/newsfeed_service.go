@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/doug-martin/goqu/v9"
 	"github.com/namnv2496/newsfeed-service/internal/cache"
 	"github.com/namnv2496/newsfeed-service/internal/domain"
 	newsfeedv1 "github.com/namnv2496/newsfeed-service/internal/handler/generated/newsfeed_core/v1"
 	"github.com/namnv2496/newsfeed-service/internal/mq/consumer"
+	"github.com/namnv2496/newsfeed-service/internal/repository"
 )
 
 type NewsfeedService interface {
@@ -20,18 +20,18 @@ type NewsfeedService interface {
 }
 
 type newsfeedService struct {
-	db          *goqu.Database
+	postRepo    repository.PostRepository
 	kafkaClient consumer.Consumer
 	redis       cache.Client
 }
 
 func NewUserService(
-	db *goqu.Database,
+	postRepo repository.PostRepository,
 	kafkaClient consumer.Consumer,
 	redis cache.Client,
 ) NewsfeedService {
 	return &newsfeedService{
-		db:          db,
+		postRepo:    postRepo,
 		kafkaClient: kafkaClient,
 		redis:       redis,
 	}
@@ -56,13 +56,14 @@ func (s newsfeedService) UpdateNewsfeed(
 }
 
 func (s newsfeedService) GetPost(ctx context.Context, postID uint64) (domain.Post, bool, error) {
-	var post domain.Post
-	found, err := s.db.From(domain.TabNamePost).
-		Where(goqu.C("id").Eq(postID)).
-		ScanStructContext(ctx, &post)
-	return post, found, err
+	posts, err := s.postRepo.GetPosts(ctx, repository.PostFilter{IDs: []uint64{postID}})
+	if err != nil || len(posts) == 0 {
+		return domain.Post{}, false, err
+	}
+	return posts[0], true, nil
 }
 
+// 拉去用户的推送列表
 func (s newsfeedService) GetNewsfeed(
 	ctx context.Context,
 	userId string,
@@ -85,10 +86,10 @@ func (s newsfeedService) GetNewsfeed(
 		postIDs = append(postIDs, postID)
 	}
 
-	var posts []domain.Post
-	err = s.db.From(domain.TabNamePost).
-		Where(goqu.C("id").In(postIDs), goqu.C("visible").Eq(true)).
-		Executor().ScanStructsContext(ctx, &posts)
+	posts, err := s.postRepo.GetPosts(ctx, repository.PostFilter{
+		IDs:         postIDs,
+		VisibleOnly: true,
+	})
 	if err != nil {
 		return nil, err
 	}

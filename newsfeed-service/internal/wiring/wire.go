@@ -11,12 +11,14 @@ import (
 	"github.com/namnv2496/newsfeed-service/internal/handler"
 	"github.com/namnv2496/newsfeed-service/internal/logic"
 	"github.com/namnv2496/newsfeed-service/internal/mq"
+	"github.com/namnv2496/newsfeed-service/internal/repository"
 )
 
 func Initilize() (*app.App, func(), error) {
 	wire.Build(
 		configs.ConfigWireSet,
 		database.DatabaseWireSet,
+		repository.RepositoryWireSet,
 		logic.LogicWireSet,
 		handler.HandlerWireSet,
 		mq.MQWireSet,

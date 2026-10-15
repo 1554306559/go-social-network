@@ -15,6 +15,7 @@ import (
 	"github.com/namnv2496/newsfeed-service/internal/handler/grpc"
 	"github.com/namnv2496/newsfeed-service/internal/logic"
 	"github.com/namnv2496/newsfeed-service/internal/mq/consumer"
+	"github.com/namnv2496/newsfeed-service/internal/repository"
 )
 
 // Injectors from wire.go:
@@ -30,10 +31,11 @@ func Initilize() (*app.App, func(), error) {
 		return nil, nil, err
 	}
 	goquDatabase := database.InitializeGoquDB(db)
+	postRepository := repository.NewPostRepository(goquDatabase)
 	kafka := config.Kafka
 	consumerConsumer := consumer.NewConsumer(kafka)
 	client := cache.NewRedisClient(config)
-	newsfeedService := logic.NewUserService(goquDatabase, consumerConsumer, client)
+	newsfeedService := logic.NewUserService(postRepository, consumerConsumer, client)
 	newsfeedServiceServer := grpc.NewGrpcHander(newsfeedService)
 	server := grpc.NewServer(newsfeedServiceServer)
 	configsGRPC := config.GRPC
