@@ -20,7 +20,8 @@ var (
 type Client interface {
 	Set(ctx context.Context, key string, data any, ttl ...time.Duration) error
 	Get(ctx context.Context, key string) (any, error)
-	AddToSet(ctx context.Context, key string, data ...any) error
+	AddToSets(ctx context.Context, keys []string, data any) error
+	GetSetMembers(ctx context.Context, key string) ([]string, error)
 	IsDataInSet(ctx context.Context, key string, data any) (bool, error)
 }
 
@@ -78,12 +79,25 @@ func (c redisClient) Get(ctx context.Context, key string) (any, error) {
 	return data, nil
 }
 
-func (c redisClient) AddToSet(ctx context.Context, key string, data ...any) error {
-	if err := c.redisClient.SAdd(ctx, key, data...).Err(); err != nil {
+func (c redisClient) AddToSets(ctx context.Context, keys []string, data any) error {
+	pipe := c.redisClient.Pipeline()
+	for _, key := range keys {
+		pipe.SAdd(ctx, key, data)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
 		return status.Error(codes.Internal, "failed to set data into set inside cache")
 	}
 
 	return nil
+}
+
+func (c redisClient) GetSetMembers(ctx context.Context, key string) ([]string, error) {
+	result, err := c.redisClient.SMembers(ctx, key).Result()
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get data from set inside cache")
+	}
+
+	return result, nil
 }
 
 func (c redisClient) IsDataInSet(ctx context.Context, key string, data any) (bool, error) {

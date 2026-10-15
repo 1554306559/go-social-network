@@ -2,11 +2,10 @@ package consumers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
-	"github.com/namnv2496/newsfeed-service/internal/domain"
 	"github.com/namnv2496/newsfeed-service/internal/handler/grpc"
 	"github.com/namnv2496/newsfeed-service/internal/logic"
 	"github.com/namnv2496/newsfeed-service/internal/mq"
@@ -35,27 +34,36 @@ func NewKafkaHandler(
 	}
 }
 
+// consume message from topic: post-content
 func (c consumerHandler) StartConsumerUp(ctx context.Context) error {
 	fmt.Println("Listening from topic: ", mq.TOPIC_POST_CONTENT)
+	// 在告诉 Kafka消费者，当 newsfeed Topic收到消息时，执行我提供的这个函数
 	c.consumer.RegisterHandler(
 		mq.TOPIC_POST_CONTENT,
 		func(ctx context.Context, queueName string, payload []byte) error {
 			fmt.Println("listen from queue: " + queueName + ". Data: " + string(payload))
-			var newPost domain.Post
-			if err := json.Unmarshal([]byte(payload), &newPost); err != nil {
-				fmt.Println("error when marshal new post")
+			postID, err := strconv.ParseUint(string(payload), 10, 64)
+			if err != nil {
+				fmt.Println("invalid post id")
 				return err
 			}
+			newPost, found, err := c.newsfeedService.GetPost(ctx, postID)
+			if err != nil {
+				return err
+			}
+			if !found || !newPost.Visible {
+				return nil
+			}
 			// update newsfeed for current user
-			if err := c.newsfeedService.UpdateNewsfeed(ctx, []string{newPost.User_id}, newPost); err != nil {
+			if err := c.newsfeedService.UpdateNewsfeed(ctx, []string{newPost.User_id}, postID); err != nil {
 				return err
 			}
 			// update newsfeed for taged users
 			var tags []string
-			if newPost.Tags != "" {
+			if len(newPost.Tags) == 0 {
 				tags = strings.Split(newPost.Tags, ",")
 				fmt.Println("Update for taged users: ", tags)
-				if err := c.newsfeedService.UpdateNewsfeed(ctx, tags, newPost); err != nil {
+				if err := c.newsfeedService.UpdateNewsfeed(ctx, tags, postID); err != nil {
 					return err
 				}
 			}
@@ -77,7 +85,7 @@ func (c consumerHandler) StartConsumerUp(ctx context.Context) error {
 					}
 				}
 				fmt.Println("Update for followings: ", followingUpdate)
-				if err := c.newsfeedService.UpdateNewsfeed(ctx, followingUpdate, newPost); err != nil {
+				if err := c.newsfeedService.UpdateNewsfeed(ctx, followingUpdate, postID); err != nil {
 					return err
 				}
 			}

@@ -2,8 +2,8 @@ package logic
 
 import (
 	"context"
-	"encoding/json"
-	"log"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/doug-martin/goqu/v9"
@@ -14,7 +14,8 @@ import (
 )
 
 type NewsfeedService interface {
-	UpdateNewsfeed(context.Context, []string, domain.Post) error
+	GetPost(context.Context, uint64) (domain.Post, bool, error)
+	UpdateNewsfeed(context.Context, []string, uint64) error
 	GetNewsfeed(context.Context, string) (*newsfeedv1.GetNewsfeedResponse, error)
 }
 
@@ -39,65 +40,66 @@ func NewUserService(
 func (s newsfeedService) UpdateNewsfeed(
 	ctx context.Context,
 	users []string,
-	newPost domain.Post,
+	postID uint64,
 ) error {
 
 	if len(users) == 0 {
 		return nil
 	}
+	keys := make([]string, 0, len(users))
 	for _, user := range users {
 		user = strings.ToLower(user)
 		user = strings.Trim(user, " ")
-		user = user + "_newsfeed"
-		var jsonData []domain.Post
-		data, exist := s.redis.Get(ctx, user)
-		if exist != nil {
-			log.Println("cache post is not exist. Add new! user_id: ", user)
-			jsonData = append(jsonData, newPost)
-			redis, err := json.Marshal(jsonData)
-			if err != nil {
-				return err
-			}
-			if err := s.redis.Set(ctx, user, redis); err != nil {
-				log.Fatalln("Failed to set data to redis")
-			}
-			continue
-		}
-		log.Println("cache post is exist! user_id: ", user)
-		dataByte, _ := data.(string)
-		if err := json.Unmarshal([]byte(dataByte), &jsonData); err != nil {
-			log.Println("error when marshal old post")
-			return err
-		}
-		jsonData = append(jsonData, newPost)
-		redis, err := json.Marshal(jsonData)
-		if err != nil {
-			return err
-		}
-		if err := s.redis.Set(ctx, user, redis); err != nil {
-			log.Fatalln("Failed to set data to redis")
-		}
+		keys = append(keys, user+"_newsfeed")
 	}
-	return nil
+	return s.redis.AddToSets(ctx, keys, postID)
+}
+
+func (s newsfeedService) GetPost(ctx context.Context, postID uint64) (domain.Post, bool, error) {
+	var post domain.Post
+	found, err := s.db.From(domain.TabNamePost).
+		Where(goqu.C("id").Eq(postID)).
+		ScanStructContext(ctx, &post)
+	return post, found, err
 }
 
 func (s newsfeedService) GetNewsfeed(
 	ctx context.Context,
 	userId string,
 ) (*newsfeedv1.GetNewsfeedResponse, error) {
-	data, ok := s.redis.Get(ctx, userId+"_newsfeed")
-	if ok != nil {
-		return nil, nil
-	}
-	var posts []domain.Post
-	if err := json.Unmarshal([]byte(data.(string)), &posts); err != nil {
-		log.Println("error when marshal old post")
+	key := strings.ToLower(strings.Trim(userId, " ")) + "_newsfeed"
+	members, err := s.redis.GetSetMembers(ctx, key)
+	if err != nil {
 		return nil, err
 	}
-	postPointers := make([]*newsfeedv1.NewsfeedPost, len(posts))
-	reverseSlice(posts)
-	for i, post := range posts {
-		postPointers[i] = &newsfeedv1.NewsfeedPost{
+	if len(members) == 0 {
+		return &newsfeedv1.GetNewsfeedResponse{Posts: []*newsfeedv1.NewsfeedPost{}}, nil
+	}
+
+	postIDs := make([]uint64, 0, len(members))
+	for _, member := range members {
+		postID, err := strconv.ParseUint(member, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		postIDs = append(postIDs, postID)
+	}
+
+	var posts []domain.Post
+	err = s.db.From(domain.TabNamePost).
+		Where(goqu.C("id").In(postIDs), goqu.C("visible").Eq(true)).
+		Executor().ScanStructsContext(ctx, &posts)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(posts, func(i, j int) bool {
+		return posts[i].CreatedAt.After(posts[j].CreatedAt)
+	})
+
+	postPointers := make([]*newsfeedv1.NewsfeedPost, 0, len(posts))
+	for _, post := range posts {
+		postPointers = append(postPointers, &newsfeedv1.NewsfeedPost{
 			UserId:      post.User_id,
 			PostId:      post.Id,
 			ContentText: post.Content_text,
@@ -105,16 +107,9 @@ func (s newsfeedService) GetNewsfeed(
 			Tags:        strings.Split(post.Tags, ","),
 			Visible:     post.Visible,
 			Date:        post.CreatedAt.String(),
-		}
+		})
 	}
 	return &newsfeedv1.GetNewsfeedResponse{
 		Posts: postPointers,
 	}, nil
-}
-
-func reverseSlice(posts []domain.Post) {
-	n := len(posts)
-	for i := 0; i < n/2; i++ {
-		posts[i], posts[n-1-i] = posts[n-1-i], posts[i]
-	}
 }

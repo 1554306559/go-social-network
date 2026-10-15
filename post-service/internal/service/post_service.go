@@ -2,9 +2,9 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/go-uuid"
@@ -60,7 +60,7 @@ func (p *postService) AddPost(
 		return nil, err
 	}
 	// public to kafka
-	if err := p.publishNewPost(ctx, post); err != nil {
+	if err := p.publishNewPost(ctx, uint64(post.Id)); err != nil {
 		log.Println("publish new post err: ", err)
 	}
 
@@ -107,12 +107,9 @@ func (p *postService) GetPosts(
 	}, nil
 }
 
-func (p *postService) publishNewPost(ctx context.Context, post domain.Post) error {
-	data, err := json.Marshal(post)
-	if err != nil {
-		fmt.Println("Error marshall data to send newsfeed")
-	}
-	fmt.Println("Call trigger to newsFeed a post: ", post)
+func (p *postService) publishNewPost(ctx context.Context, postID uint64) error {
+	data := []byte(strconv.FormatUint(postID, 10))
+	fmt.Println("Call trigger to newsFeed a post: ", postID)
 	if err := p.kafkaClient.Produce(ctx, mq.TOPIC_POST_CONTENT, data); err != nil {
 		log.Println("Error when send data to kafka: ", err)
 		return err
