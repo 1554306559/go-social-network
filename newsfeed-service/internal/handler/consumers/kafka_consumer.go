@@ -93,5 +93,6 @@ func (c consumerHandler) StartConsumerUp(ctx context.Context) error {
 			return nil
 		},
 	)
+
 	return nil
 }

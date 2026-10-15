@@ -32,6 +32,7 @@ func NewAccountHander(
 	}
 }
 
+// 创建账号入口
 func (s *AccountServiceController) CreateAccount(
 	ctx context.Context,
 	in *userv1.CreateAccountRequest,
@@ -83,10 +84,12 @@ func (s *AccountServiceController) GetAccount(
 	}, nil
 }
 
+// 用户查询
 func (s *AccountServiceController) FindAccount(
 	ctx context.Context,
 	req *userv1.FindAccountRequest,
 ) (*userv1.FindAccountResponse, error) {
+	// 以同时对 name 和 userId 做前缀匹配是合理的
 	users, err := s.userService.FindAccount(ctx, req.UserId)
 	if err != nil {
 		return nil, err

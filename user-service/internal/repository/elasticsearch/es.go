@@ -16,8 +16,7 @@ import (
 )
 
 type ElasticSearchClient interface {
-	CreateIndex(ctx context.Context, indexName string) error
-	AddDataToIndex(ctx context.Context, indexName string, data map[string]interface{}) error
+	AddDataToIndex(ctx context.Context, indexName, documentID string, data map[string]interface{}) error
 	SearchDataFromIndex(ctx context.Context, indexName string, query string) (map[string]interface{}, error)
 	TemplateQuery(ctx context.Context, shopId, template string, page, size int64) ([]*domain.User, error)
 }
@@ -67,51 +66,10 @@ func NewElasticSearch() (ElasticSearchClient, error) {
 	}, nil
 }
 
-func (es *elasticSearch) CreateIndex(
-	ctx context.Context,
-	indexName string,
-) error {
-
-	// Check if the index already exists
-	res, err := es.client.Indices.Exists([]string{indexName})
-	if err != nil {
-		log.Println("Error checking if index exists: ", err)
-		return err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode == 404 {
-		// Index does not exist, create it
-		// ================= Way 1: user elastic v7 =================
-		// res, err = es.client.Indices.Create(
-		// 	indexName,
-		// 	es.client.Indices.Create.WithBody(strings.NewReader(initData)),
-		// )
-
-		// ================= Way 2: use esapi =================
-		req := esapi.IndexRequest{
-			Index:      indexName,
-			DocumentID: "", // null to auto generate
-			// Body:       strings.NewReader(initData),
-			Refresh: "true",
-		}
-		res, err := req.Do(ctx, es.client)
-		if err != nil {
-			log.Println("Error indexing document: ", err)
-			return err
-		}
-		defer res.Body.Close()
-
-		fmt.Println("Index created: ", indexName)
-	} else {
-		fmt.Println("Index already exists: ", indexName)
-	}
-	return nil
-}
-
 func (es *elasticSearch) AddDataToIndex(
 	ctx context.Context,
 	indexName string,
+	documentID string,
 	data map[string]interface{},
 ) error {
 	dataJSON, err := json.Marshal(data)
@@ -128,7 +86,7 @@ func (es *elasticSearch) AddDataToIndex(
 	// ================= Way 2: use esapi =================
 	req := esapi.IndexRequest{
 		Index:      indexName,
-		DocumentID: "", // null to auto generate
+		DocumentID: documentID,
 		Body:       bytes.NewReader(dataJSON),
 		Refresh:    "true",
 	}
@@ -138,6 +96,9 @@ func (es *elasticSearch) AddDataToIndex(
 		return err
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return fmt.Errorf("failed to index document: %s", res.String())
+	}
 	fmt.Println("New data indexed in ", indexName)
 	return nil
 }

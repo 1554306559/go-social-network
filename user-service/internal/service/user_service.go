@@ -77,12 +77,7 @@ func (u *userService) CreateAccount(ctx context.Context, req *userv1.Account) (u
 		"createdAt": user.CreatedAt,
 	}
 
-	err = u.esClient.CreateIndex(ctx, "user")
-	if err != nil {
-		log.Println("Failed to create index in elastic search: ", err)
-		return 0, err
-	}
-	err = u.esClient.AddDataToIndex(ctx, "user", data)
+	err = u.esClient.AddDataToIndex(ctx, "user", user.UserId, data)
 	if err != nil {
 		log.Println("Failed to add to elastic search: ", err)
 		return 0, err
