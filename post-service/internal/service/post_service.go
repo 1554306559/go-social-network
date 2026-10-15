@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -56,20 +55,12 @@ func (p *postService) AddPost(
 		Visible:      req.Post.Visible,
 	}
 	// add post
-	if err := p.postRepository.AddPost(ctx, post); err != nil {
-		return nil, err
-	}
-	// get post
-	posts, err := p.postRepository.GetPosts(ctx, domain.PostByUserId(req.Post.UserId), domain.PostByUuid(uuid), domain.PostOrderById())
+	post, err := p.postRepository.AddPost(ctx, post)
 	if err != nil {
 		return nil, err
 	}
-	if len(posts) == 0 {
-		return nil, errors.New("failed to create new post")
-	}
-	id := posts[0].Id
 	// public to kafka
-	if err := p.publishNewPost(ctx, *posts[0]); err != nil {
+	if err := p.publishNewPost(ctx, post); err != nil {
 		log.Println("publish new post err: ", err)
 	}
 
@@ -86,7 +77,7 @@ func (p *postService) AddPost(
 	// 	log.Println("Notification err: ", err)
 	// }
 	return &postv1.CreatePostResponse{
-		PostId: uint64(id),
+		PostId: uint64(post.Id),
 	}, nil
 }
 

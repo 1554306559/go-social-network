@@ -11,7 +11,7 @@ import (
 )
 
 type IPostRepository interface {
-	AddPost(ctx context.Context, req domain.Post, opts ...database.QueryOption) error
+	AddPost(ctx context.Context, req domain.Post, opts ...database.QueryOption) (domain.Post, error)
 	GetPosts(ctx context.Context, opts ...database.QueryOption) ([]*domain.Post, error)
 }
 
@@ -35,11 +35,11 @@ func NewPostRepository(
 	}, nil
 }
 
-func (_self PostRepository) AddPost(ctx context.Context, req domain.Post, opts ...database.QueryOption) error {
+func (_self PostRepository) AddPost(ctx context.Context, req domain.Post, opts ...database.QueryOption) (domain.Post, error) {
 	if err := _self.Create(ctx, &req); err != nil {
-		return err
+		return domain.Post{}, err
 	}
-	return nil
+	return req, nil
 }
 
 func (_self PostRepository) GetPosts(ctx context.Context, opts ...database.QueryOption) ([]*domain.Post, error) {
